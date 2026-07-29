@@ -507,7 +507,44 @@ static bool BuildReplacementPipeline(PipelineShaderDetails* details) {
   details->replacement_stages = static_cast<reshade::api::pipeline_stage>(0);
   if (details->subobject_shaders.empty()) return true;
 
-  auto subobject_count = details->subobjects.size();
+  const auto subobject_count = details->subobjects.size();
+
+  bool has_runtime_replacement = false;
+  for (const auto& info : details->subobject_shaders) {
+    if (shared.data->runtime_replacements.if_contains(
+            {details->device, info.shader_hash},
+            [](const auto&) {})) {
+      has_runtime_replacement = true;
+      break;
+    }
+  }
+
+  if (!has_runtime_replacement) return true;
+
+  if (subobject_count == 0) {
+    reshade::log::message(
+        reshade::log::level::error,
+        "utils::shader::BuildReplacementPipeline(Cannot replace pipeline without cached subobjects)");
+    return false;
+  }
+
+  for (const auto& info : details->subobject_shaders) {
+    if (info.index >= subobject_count) {
+      std::stringstream s;
+      s << "utils::shader::BuildReplacementPipeline(Shader index ";
+      s << info.index;
+      s << " exceeds subobject count ";
+      s << subobject_count;
+      s << ", shader: ";
+      s << PRINT_CRC32(info.shader_hash);
+      s << ")";
+
+      reshade::log::message(
+          reshade::log::level::error,
+          s.str().c_str());
+      return false;
+    }
+  }
 
   reshade::api::pipeline_subobject* replacement_subobjects = nullptr;
   details->replacement_stages = static_cast<reshade::api::pipeline_stage>(0);
@@ -760,13 +797,14 @@ static void OnInitDevice(reshade::api::device* device) {
                             ShaderBytecodeMap& dest,
                             const std::string& type = "") {
     for (const auto& [shader_hash, replacement] : source) {
-      auto [iterator, is_new] = dest.emplace(std::pair<reshade::api::device*, uint32_t>({device, shader_hash}), replacement);
+      const DeviceShaderKey key{device, shader_hash};
+      auto [iterator, is_new] = dest.insert_or_assign(key, replacement);
       std::stringstream s;
       s << "utils::shader::OnInitDevice(";
       if (is_new) {
         s << "Registered ";
       } else {
-        s << "Ovewriting ";
+        s << "Overwriting ";
       }
       s << type;
       s << " replacement: ";
@@ -807,6 +845,28 @@ static void OnDestroyDevice(reshade::api::device* device) {
   for (const auto& pipeline_handle : pipeline_handles) {
     shared.data->pipeline_shader_details.erase(pipeline_handle);
   }
+  auto erase_device_entries = [device](auto& map) {
+    std::vector<DeviceShaderKey> keys;
+
+    map.for_each_m([&](const auto& pair) {
+      if (pair.first.first == device) {
+        keys.emplace_back(pair.first);
+      }
+    });
+
+    for (const auto& key : keys) {
+      map.erase(key);
+    }
+  };
+
+  erase_device_entries(shared.data->compile_time_replacements);
+  erase_device_entries(shared.data->runtime_replacements);
+  erase_device_entries(shared.data->shader_replacements);
+  erase_device_entries(shared.data->shader_replacements_inverse);
+  erase_device_entries(shared.data->shader_pipeline_handles);
+
+  runtime_replacement_count =
+      shared.data->runtime_replacements.size();
 }
 
 inline void OnInitCommandList(reshade::api::command_list* cmd_list) {
@@ -923,7 +983,7 @@ static void OnInitPipeline(
         subobjects_clone,
         subobjects_clone + subobject_count);
 
-    free(subobjects_clone);
+    delete[] subobjects_clone;
   }
 
   if (shared.data->use_replace_async) {
