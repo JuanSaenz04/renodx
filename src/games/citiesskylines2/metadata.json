@@ -1,0 +1,20 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
+  "id": "citiesskylines2",
+  "title": "Cities: Skylines II",
+  "status": "experimental",
+  "summary": "Adds HDR output support for Cities: Skylines II.",
+  "tags": [
+    "graphics",
+    "hdr",
+    "tone-mapping"
+  ],
+  "deploy": {
+    "api": "d3d11",
+    "architecture": [
+      "x64"
+    ],
+    "game_exe": "Cities2.exe",
+    "steam_appid": 949230
+  }
+}
