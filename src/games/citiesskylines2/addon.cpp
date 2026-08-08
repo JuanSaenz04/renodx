@@ -25,6 +25,8 @@ namespace {
 ShaderInjectData shader_injection;
 
 renodx::mods::shader::CustomShaders custom_shaders = {
+    CustomShaderEntry(0xE363E5C8),
+    CustomShaderEntry(0x73F01A45),
     CustomSwapchainShader(0x20133A8B),
 };
 
@@ -73,6 +75,17 @@ renodx::utils::settings::Settings settings = {
         .section = "Output",
         .labels = {"SDR", "HDR"},
         .on_change_value = [](float, float) { SyncOutput(); },
+    },
+    new renodx::utils::settings::Setting{
+        .key = "ToneMapType",
+        .binding = &shader_injection.tone_map_type,
+        .value_type = renodx::utils::settings::SettingValueType::INTEGER,
+        .default_value = 1.f,
+        .label = "Tone Mapper",
+        .section = "Tone Mapping",
+        .labels = {"Vanilla", "RenoDRT"},
+        .is_enabled = &IsHDROutput,
+        .parse = [](float value) { return value * 3.f; },
     },
     peak_brightness_setting = new renodx::utils::settings::Setting{
         .key = "ToneMapPeakNits",
@@ -123,6 +136,7 @@ renodx::utils::settings::Settings settings = {
 void OnPresetOff() {
   renodx::utils::settings::UpdateSettings({
       {"OutputMode", 0.f},
+      {"ToneMapType", 0.f},
       {"GammaCorrection", 0.f},
   });
   SyncOutput();
@@ -159,6 +173,17 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID) {
 
       renodx::mods::swapchain::SetUseHDR10(true);
       renodx::mods::swapchain::set_color_space = false;
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::r8g8b8a8_typeless,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          .dimensions = {
+              .width = renodx::utils::resource::ResourceUpgradeInfo::BACK_BUFFER,
+              .height = renodx::utils::resource::ResourceUpgradeInfo::BACK_BUFFER,
+              .depth = 1,
+          },
+          .usage_include = reshade::api::resource_usage::render_target,
+          .usage_exclude = reshade::api::resource_usage::unordered_access,
+      });
 
       renodx::utils::settings::Use(fdw_reason, &settings, &OnPresetOff);
       SyncOutput();
